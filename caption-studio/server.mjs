@@ -204,7 +204,7 @@ async function startTranscribe(payload) {
 
   const job = {
     id: jobId, status: 'running', progress: 0, kind: 'transcribe', dir, log: '',
-    phase: 'starting', duration: meta.duration,
+    phase: 'starting', duration: meta.duration, startedAt: Date.now(),
   };
   jobs.set(jobId, job);
   console.log(`  transcribing with whisper (${model} model) - this runs on CPU and takes a while`);
@@ -213,18 +213,25 @@ async function startTranscribe(payload) {
   // Whisper prints each segment as it finishes: "[00:12.000 --> 00:15.400]  text".
   // The last timestamp against the media duration is real progress, not a guess.
   const STAMP = /\[(?:(\d+):)?(\d{1,2}):(\d{2})\.\d{3}\s*-->/g;
+  const RANK = { starting: 0, 'downloading model': 1, 'loading model': 2, transcribing: 3 };
+  const bump = (phase) => { if (RANK[phase] > RANK[job.phase]) job.phase = phase; };
   const onOut = (c) => {
     const chunk = c.toString();
     job.log = (job.log + chunk).slice(-8000);
     process.stdout.write(chunk);          // visible in the terminal you launched from
+    STAMP.lastIndex = 0;
     let m, last = null;
     while ((m = STAMP.exec(chunk)) !== null) last = m;
     if (last) {
-      job.phase = 'transcribing';
+      bump('transcribing');
       const t = (Number(last[1]) || 0) * 3600 + Number(last[2]) * 60 + Number(last[3]);
       if (meta.duration) job.progress = Math.min(99, Math.round((t / meta.duration) * 100));
-    } else if (/%\|/.test(chunk) && job.phase === 'starting') {
-      job.phase = 'downloading model';     // first run fetches weights; looks frozen otherwise
+    }
+    // Whisper says these once the weights are in and it is actually working.
+    if (/FP16 is not supported|Detecting language|Detected language|Performing/i.test(chunk)) {
+      bump('transcribing');
+    } else if (/%\|/.test(chunk)) {
+      bump('downloading model');
     }
   };
   proc.stdout.on('data', onOut);
@@ -390,6 +397,7 @@ const server = http.createServer(async (req, res) => {
         id: job.id, status: job.status, progress: job.progress, kind: job.kind,
         error: job.error || null, result: job.result || null,
         phase: job.phase || null,
+        elapsed: job.startedAt ? Math.round((Date.now() - job.startedAt) / 1000) : null,
         tail: job.log ? job.log.slice(-1200) : undefined,
         download: job.status === 'done' && job.kind === 'render' ? `/api/download/${job.id}` : null,
       });

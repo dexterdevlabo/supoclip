@@ -49,6 +49,8 @@ const state = {
   selected: -1,
   caps: { whisper: false, fonts: [], transitions: TRANSITIONS },
   wordsPerCue: 5,
+  transcribing: false,
+  runId: 0,
 };
 
 /* ------------------------------ bootstrap -------------------------------- */
@@ -670,6 +672,11 @@ function bindActions() {
   };
   $('btn-auto').onclick = async () => {
     if (!state.media) return modal('No video', 'Add a video first.');
+    if (state.transcribing) return;            // a second run would fight the first
+    state.transcribing = true;
+    $('btn-auto').disabled = true;
+    const myRun = ++state.runId;
+    const mine = () => myRun === state.runId;  // ignore output from superseded runs
     const model = $('whisperModel').value;
     modal('Transcribing locally…',
       'Whisper runs on your CPU — roughly real time, so a 10 minute video takes about 10 minutes. ' +
@@ -679,13 +686,17 @@ function bindActions() {
       body: JSON.stringify({ mediaId: state.media.id, language: state.style.locale || 'auto', model }),
     });
     const d = await res.json();
-    if (!res.ok) return modal('Auto-caption unavailable', d.error || '');
+    const done = () => { state.transcribing = false; $('btn-auto').disabled = !state.caps.whisper; };
+    if (!res.ok) { done(); return modal('Auto-caption unavailable', d.error || ''); }
     const job = await poll(d.jobId, (j) => {
+      if (!mine()) return;
       $('modalBar').style.width = (j.progress || 0) + '%';
+      const mins = j.elapsed != null ? `  ·  ${Math.floor(j.elapsed / 60)}m ${j.elapsed % 60}s` : '';
       $('modalTitle').textContent =
-        j.phase === 'downloading model' ? 'Downloading the model…'
-        : j.phase === 'transcribing' ? `Transcribing… ${j.progress || 0}%`
-        : 'Starting Whisper…';
+        j.phase === 'downloading model' ? `Downloading the model…${mins}`
+        : j.phase === 'transcribing'
+          ? `Transcribing… ${j.progress || 0}%${mins}`
+          : `Starting Whisper…${mins}`;
       if (j.tail) {
         const log = $('modalLog');
         log.classList.remove('hidden');
@@ -693,6 +704,8 @@ function bindActions() {
         log.scrollTop = log.scrollHeight;
       }
     });
+    done();
+    if (!mine()) return;
     if (job.status === 'error') return modal('Transcription failed', job.error || '', { log: job.tail });
     state.cues = resplit(parseSubtitles(job.result.srt), state.wordsPerCue, state.style.locale);
     normalise(); renderCues(); drawCaption(true);
