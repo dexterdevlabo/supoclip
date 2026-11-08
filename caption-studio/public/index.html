@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Caption Studio</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="dot"></span> Caption&nbsp;Studio <em>local</em></div>
+  <div class="top-actions">
+    <span id="caps" class="caps"></span>
+    <button id="btn-save" class="ghost" title="Save project JSON">Save</button>
+    <button id="btn-load" class="ghost" title="Open project JSON">Open</button>
+    <button id="btn-export" class="primary" disabled>Export video</button>
+  </div>
+</header>
+
+<main id="app">
+  <!-- ---------------- left: style controls ---------------- -->
+  <aside class="panel left">
+    <section>
+      <h3>Preset</h3>
+      <div id="presets" class="preset-grid"></div>
+    </section>
+
+    <section>
+      <h3>Animation</h3>
+      <div id="transitions" class="chip-grid"></div>
+      <label class="row"><span>Speed</span>
+        <input type="range" id="transitionMs" min="90" max="420" step="10" />
+        <output id="transitionMsOut"></output>
+      </label>
+    </section>
+
+    <section>
+      <h3>Font</h3>
+      <div class="row">
+        <select id="fontName" class="grow"></select>
+      </div>
+      <div class="row small">
+        <label class="file ghost">Add font file<input type="file" id="fontFile" accept=".ttf,.otf,.ttc,.woff,.woff2" hidden /></label>
+        <span class="hint">for any language / brand font</span>
+      </div>
+      <label class="row"><span>Size</span>
+        <input type="range" id="fontSizePct" min="2" max="14" step="0.2" /><output id="fontSizePctOut"></output>
+      </label>
+      <label class="row"><span>Tracking</span>
+        <input type="range" id="spacing" min="-2" max="12" step="0.5" /><output id="spacingOut"></output>
+      </label>
+      <div class="row toggles">
+        <button class="tgl" data-toggle="bold"><b>B</b></button>
+        <button class="tgl" data-toggle="italic"><i>I</i></button>
+        <button class="tgl" data-toggle="underline"><u>U</u></button>
+        <button class="tgl" data-toggle="uppercase">AA</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Colour</h3>
+      <label class="row"><span>Text</span><input type="color" id="textColor" /></label>
+      <label class="row"><span>Outline</span><input type="color" id="outlineColor" /></label>
+      <label class="row"><span>Highlight</span><input type="color" id="highlightColor" /></label>
+      <label class="row"><span>Box</span><input type="color" id="boxColor" /></label>
+      <label class="row"><span>Backing</span>
+        <select id="boxStyle">
+          <option value="outline">Outline + shadow</option>
+          <option value="box">Solid box</option>
+          <option value="none">Plain text</option>
+        </select>
+      </label>
+      <label class="row"><span>Outline w.</span>
+        <input type="range" id="outlineWidth" min="0" max="12" step="0.5" /><output id="outlineWidthOut"></output>
+      </label>
+      <label class="row"><span>Shadow</span>
+        <input type="range" id="shadowWidth" min="0" max="12" step="0.5" /><output id="shadowWidthOut"></output>
+      </label>
+      <label class="row"><span>Box alpha</span>
+        <input type="range" id="boxOpacity" min="0" max="1" step="0.05" /><output id="boxOpacityOut"></output>
+      </label>
+    </section>
+
+    <section>
+      <h3>Layout</h3>
+      <div class="align-grid" id="alignGrid"></div>
+      <label class="row"><span>Side pad</span>
+        <input type="range" id="marginXPct" min="0" max="25" step="1" /><output id="marginXPctOut"></output>
+      </label>
+      <label class="row"><span>Edge pad</span>
+        <input type="range" id="marginYPct" min="0" max="45" step="1" /><output id="marginYPctOut"></output>
+      </label>
+      <label class="row"><span>Line length</span>
+        <input type="range" id="maxChars" min="10" max="80" step="1" /><output id="maxCharsOut"></output>
+      </label>
+    </section>
+  </aside>
+
+  <!-- ---------------- centre: video + preview ---------------- -->
+  <section class="stage">
+    <div id="dropzone" class="dropzone">
+      <div class="dz-inner">
+        <strong>Drop a video here</strong>
+        <span>mp4 · mov · webm · mkv · avi — never leaves your machine</span>
+        <label class="file primary">Choose video<input type="file" id="videoFile" accept="video/*" hidden /></label>
+      </div>
+    </div>
+
+    <div id="player" class="player hidden">
+      <div class="video-wrap" id="videoWrap">
+        <video id="video" playsinline></video>
+        <div id="capLayer" class="cap-layer"><div id="capBox" class="cap-box"></div></div>
+      </div>
+      <div class="transport">
+        <button id="btn-play" class="ghost">▶</button>
+        <input type="range" id="seek" min="0" max="100" step="0.01" value="0" class="grow" />
+        <span id="time" class="mono">0:00 / 0:00</span>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- right: captions ---------------- -->
+  <aside class="panel right">
+    <section>
+      <h3>Captions</h3>
+      <div class="row wrap gap">
+        <button id="btn-auto" class="primary" disabled>Auto-caption</button>
+        <label class="file ghost">Import SRT/VTT<input type="file" id="subFile" accept=".srt,.vtt,.txt" hidden /></label>
+        <button id="btn-add" class="ghost">+ Cue</button>
+      </div>
+      <label class="row"><span>Language</span><select id="locale" class="grow"></select></label>
+      <label class="row"><span>Max words/cue</span>
+        <input type="range" id="wordsPerCue" min="1" max="14" step="1" /><output id="wordsPerCueOut"></output>
+      </label>
+      <div class="row small">
+        <button id="btn-resplit" class="ghost">Re-split cues</button>
+        <button id="btn-srt" class="ghost">.srt</button>
+        <button id="btn-ass" class="ghost">.ass</button>
+        <button id="btn-clear" class="ghost danger">Clear</button>
+      </div>
+      <p class="hint" id="capHint">No captions yet. Auto-caption, import a file, or add cues and type.</p>
+    </section>
+    <section class="grow-section">
+      <div id="cues" class="cues"></div>
+    </section>
+  </aside>
+</main>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="modalTitle">Working…</h3>
+    <div class="bar"><div id="modalBar"></div></div>
+    <p id="modalMsg" class="hint"></p>
+    <pre id="modalLog" class="log hidden"></pre>
+    <div class="row end"><a id="modalDl" class="primary hidden" download>Download</a><button id="modalClose" class="ghost">Close</button></div>
+  </div>
+</div>
+
+<input type="file" id="projFile" accept=".json" hidden />
+<script type="module" src="/app.js"></script>
+</body>
+</html>
