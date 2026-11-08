@@ -1,0 +1,11 @@
+{
+  "name": "caption-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local video captioning studio: styled, animated captions burned in with ffmpeg. No dependencies, no cloud.",
+  "type": "module",
+  "bin": { "caption-studio": "./server.mjs" },
+  "scripts": { "start": "node server.mjs" },
+  "engines": { "node": ">=20" },
+  "license": "AGPL-3.0-only"
+}
