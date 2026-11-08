@@ -29,8 +29,12 @@ function escapeText(t) {
     .replace(/\r/g, '');
 }
 
+/** 'auto' means we don't know the language; Intl wants undefined, not a bad tag. */
+const loc = (l) => (l && l !== 'auto' ? l : undefined);
+
 /** Split text into segments, script-aware (works for CJK/Thai with no spaces). */
 function segment(text, locale, granularity) {
+  locale = loc(locale);
   if (typeof Intl !== 'undefined' && Intl.Segmenter) {
     try {
       const seg = new Intl.Segmenter(locale || undefined, { granularity });
@@ -44,6 +48,7 @@ function segment(text, locale, granularity) {
 /** Wrap one logical line to maxChars, respecting word boundaries of any script. */
 export function wrapText(text, maxChars, locale) {
   const limit = Math.max(6, Number(maxChars) || 42);
+  locale = loc(locale);
   const out = [];
   for (const para of String(text).split('\n')) {
     if (!para.trim()) { out.push(''); continue; }
@@ -179,7 +184,7 @@ export function buildAss({ cues = [], style = {}, transition = 'fade', width = 1
     const end = Math.max(start + 0.05, Number(cue.end) || start + 1);
     let raw = String(cue.text ?? '').trim();
     if (!raw) continue;
-    if (st.uppercase) raw = raw.toLocaleUpperCase(cue.locale || st.locale || undefined);
+    if (st.uppercase) raw = raw.toLocaleUpperCase(loc(cue.locale || st.locale));
     const locale = cue.locale || st.locale;
     const lines = wrapText(raw, st.maxChars, locale);
     const body = lines.map(escapeText).join('\\N');

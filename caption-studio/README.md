@@ -8,12 +8,28 @@ server runs on your machine and `ffmpeg` does the rendering.
 
 ## Run it
 
+It is one file. Take `caption-studio.mjs` anywhere — nothing else needs to come
+with it — and run:
+
 ```bash
-node caption-studio/server.mjs
+node caption-studio.mjs
+```
+
+Or, since it is executable:
+
+```bash
+./caption-studio.mjs
 ```
 
 Then open <http://127.0.0.1:4321>. `PORT`, `HOST` and `CAPTION_STUDIO_WORK` are
 all configurable via environment variables.
+
+The same app also runs from the source tree, which is what you want while
+editing it:
+
+```bash
+node server.mjs
+```
 
 Requirements:
 
@@ -83,9 +99,24 @@ imports it to build the subtitle file, and the browser imports the very same
 module over HTTP for line wrapping, so the preview and the export agree on where
 lines break.
 
-Working files live in `caption-studio/.work/` (git-ignored): uploads in `media/`,
-added fonts in `fonts/`, renders in `jobs/`. Delete that directory any time to
-reclaim the space.
+### The single file
+
+`caption-studio.mjs` is generated — it is `server.mjs` with `public/` and
+`lib/ass.mjs` embedded as strings. Edit the source files, never the bundle, and
+rebuild:
+
+```bash
+node build.mjs
+```
+
+The bundle holds exactly one copy of the caption engine: the browser is served
+`lib/ass.mjs` as text, and the server imports that same text as a module through
+a `data:` URL.
+
+Working files live in `~/.caption-studio` by default (uploads in `media/`, added
+fonts in `fonts/`, renders in `jobs/`), so a file you run from your Downloads
+folder does not scatter videos next to itself. Set `CAPTION_STUDIO_WORK` to move
+it. Delete that directory any time to reclaim the space.
 
 ## Keyboard
 

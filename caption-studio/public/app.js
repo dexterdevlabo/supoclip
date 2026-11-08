@@ -10,7 +10,7 @@ const DEFAULT_STYLE = {
   uppercase: false, spacing: 0, textColor: '#ffffff', textOpacity: 1,
   outlineColor: '#000000', outlineWidth: 3, shadowWidth: 1.5,
   highlightColor: '#ffd400', boxColor: '#000000', boxOpacity: 0.55, boxStyle: 'outline',
-  alignment: 2, marginXPct: 6, marginYPct: 9, maxChars: 32, transitionMs: 260, locale: 'en',
+  alignment: 2, marginXPct: 6, marginYPct: 9, maxChars: 32, transitionMs: 260, locale: 'auto',
 };
 
 const PRESETS = [
@@ -25,6 +25,7 @@ const PRESETS = [
 ];
 
 const LOCALES = [
+  ['auto', 'Auto-detect'],
   ['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['fr', 'Français'], ['de', 'Deutsch'],
   ['it', 'Italiano'], ['nl', 'Nederlands'], ['pl', 'Polski'], ['tr', 'Türkçe'], ['ro', 'Română'],
   ['sv', 'Svenska'], ['da', 'Dansk'], ['fi', 'Suomi'], ['cs', 'Čeština'], ['el', 'Ελληνικά'],
@@ -243,6 +244,7 @@ function activeCue(t) {
 }
 
 function segments(text, locale, granularity) {
+  if (locale === 'auto') locale = undefined;
   if (window.Intl && Intl.Segmenter) {
     try {
       return [...new Intl.Segmenter(locale || undefined, { granularity }).segment(text)]
@@ -269,7 +271,7 @@ function drawCaption(forceRestart = false) {
   const locale = cue.locale || st.locale;
   let raw = String(cue.text || '').trim();
   if (!raw) { box.innerHTML = ''; return; }
-  if (st.uppercase) { try { raw = raw.toLocaleUpperCase(locale); } catch { raw = raw.toUpperCase(); } }
+  if (st.uppercase) { try { raw = raw.toLocaleUpperCase(locale === 'auto' ? undefined : locale); } catch { raw = raw.toUpperCase(); } }
   const lines = wrapText(raw, st.maxChars, locale);
 
   // geometry
@@ -418,7 +420,10 @@ function updateTime() {
 
 function select(i) {
   state.selected = i;
-  renderCues();
+  // Update highlighting in place. Rebuilding the list here would destroy the
+  // textarea the user just clicked into, so typing would never land.
+  const nodes = $('cues').children;
+  for (let k = 0; k < nodes.length; k++) nodes[k].classList.toggle('on', k === i);
   renderTimeline();
 }
 
@@ -665,15 +670,29 @@ function bindActions() {
   };
   $('btn-auto').onclick = async () => {
     if (!state.media) return modal('No video', 'Add a video first.');
-    modal('Transcribing locally…', 'Whisper is running on this machine. Long videos take a while.', { progress: 5 });
+    const model = $('whisperModel').value;
+    modal('Transcribing locally…',
+      'Whisper runs on your CPU — roughly real time, so a 10 minute video takes about 10 minutes. ' +
+      'The first run also downloads the model.', { progress: 1, log: ' ' });
     const res = await fetch('/api/transcribe', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mediaId: state.media.id, language: state.style.locale || 'auto' }),
+      body: JSON.stringify({ mediaId: state.media.id, language: state.style.locale || 'auto', model }),
     });
     const d = await res.json();
     if (!res.ok) return modal('Auto-caption unavailable', d.error || '');
-    let n = 5;
-    const job = await poll(d.jobId, () => { n = Math.min(95, n + 3); $('modalBar').style.width = n + '%'; });
+    const job = await poll(d.jobId, (j) => {
+      $('modalBar').style.width = (j.progress || 0) + '%';
+      $('modalTitle').textContent =
+        j.phase === 'downloading model' ? 'Downloading the model…'
+        : j.phase === 'transcribing' ? `Transcribing… ${j.progress || 0}%`
+        : 'Starting Whisper…';
+      if (j.tail) {
+        const log = $('modalLog');
+        log.classList.remove('hidden');
+        log.textContent = j.tail;
+        log.scrollTop = log.scrollHeight;
+      }
+    });
     if (job.status === 'error') return modal('Transcription failed', job.error || '', { log: job.tail });
     state.cues = resplit(parseSubtitles(job.result.srt), state.wordsPerCue, state.style.locale);
     normalise(); renderCues(); drawCaption(true);

@@ -10,11 +10,13 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// <<BUNDLE:ASS_IMPORT>>
 import { buildAss, buildSrt, buildVtt, TRANSITIONS } from './lib/ass.mjs';
+// <</BUNDLE:ASS_IMPORT>>
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
-const WORK = process.env.CAPTION_STUDIO_WORK || path.join(__dirname, '.work');
+const WORK = process.env.CAPTION_STUDIO_WORK || path.join(os.homedir(), '.caption-studio');
 const MEDIA = path.join(WORK, 'media');
 const FONTS = path.join(WORK, 'fonts');
 const JOBS = path.join(WORK, 'jobs');
@@ -189,18 +191,42 @@ async function startTranscribe(payload) {
   const jobId = crypto.randomUUID();
   const dir = path.join(JOBS, jobId);
   await fsp.mkdir(dir, { recursive: true });
+  const meta = await probe(path.join(MEDIA, media));
   const wav = path.join(dir, 'audio.wav');
   await run('ffmpeg', ['-hide_banner', '-nostdin', '-y', '-i', path.join(MEDIA, media),
                        '-vn', '-ac', '1', '-ar', '16000', wav]);
 
-  const args = [wav, '--model', payload.model || 'small', '--output_format', 'srt',
+  const MODELS = new Set(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo']);
+  const model = MODELS.has(payload.model) ? payload.model : 'small';
+  const args = [wav, '--model', model, '--output_format', 'srt', '--verbose', 'True',
                 '--output_dir', dir, '--task', payload.translate ? 'translate' : 'transcribe'];
   if (payload.language && payload.language !== 'auto') args.push('--language', payload.language);
 
-  const job = { id: jobId, status: 'running', progress: 0, kind: 'transcribe', dir, log: '' };
+  const job = {
+    id: jobId, status: 'running', progress: 0, kind: 'transcribe', dir, log: '',
+    phase: 'starting', duration: meta.duration,
+  };
   jobs.set(jobId, job);
+  console.log(`  transcribing with whisper (${model} model) - this runs on CPU and takes a while`);
   const proc = spawn('whisper', args, { cwd: dir });
-  const onOut = (c) => { job.log = (job.log + c.toString()).slice(-8000); };
+
+  // Whisper prints each segment as it finishes: "[00:12.000 --> 00:15.400]  text".
+  // The last timestamp against the media duration is real progress, not a guess.
+  const STAMP = /\[(?:(\d+):)?(\d{1,2}):(\d{2})\.\d{3}\s*-->/g;
+  const onOut = (c) => {
+    const chunk = c.toString();
+    job.log = (job.log + chunk).slice(-8000);
+    process.stdout.write(chunk);          // visible in the terminal you launched from
+    let m, last = null;
+    while ((m = STAMP.exec(chunk)) !== null) last = m;
+    if (last) {
+      job.phase = 'transcribing';
+      const t = (Number(last[1]) || 0) * 3600 + Number(last[2]) * 60 + Number(last[3]);
+      if (meta.duration) job.progress = Math.min(99, Math.round((t / meta.duration) * 100));
+    } else if (/%\|/.test(chunk) && job.phase === 'starting') {
+      job.phase = 'downloading model';     // first run fetches weights; looks frozen otherwise
+    }
+  };
   proc.stdout.on('data', onOut);
   proc.stderr.on('data', onOut);
   proc.on('error', (err) => { job.status = 'error'; job.error = err.message; });
@@ -218,19 +244,28 @@ async function startTranscribe(payload) {
 
 /* -------------------------------- routing ------------------------------- */
 
-function serveStatic(req, res, urlPath) {
+// <<BUNDLE:ASSETS>>
+// Served from disk in the source tree; the bundler swaps this for embedded strings.
+async function readAsset(rel) {
+  const file = rel === 'lib/ass.mjs' ? path.join(__dirname, 'lib', 'ass.mjs') : path.join(PUBLIC, rel);
+  try {
+    const body = await fsp.readFile(file);
+    return { body, type: MIME[path.extname(file).toLowerCase()] || 'application/octet-stream' };
+  } catch { return null; }
+}
+// <</BUNDLE:ASSETS>>
+
+async function sendAsset(res, urlPath) {
   const rel = urlPath === '/' ? 'index.html' : decodeURIComponent(urlPath).replace(/^\/+/, '');
-  const file = path.join(PUBLIC, rel);
-  if (!file.startsWith(PUBLIC)) return json(res, 403, { error: 'forbidden' });
-  fs.stat(file, (err, st) => {
-    if (err || !st.isFile()) return json(res, 404, { error: 'not found' });
-    res.writeHead(200, {
-      'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'content-length': st.size,
-      'cache-control': 'no-cache',
-    });
-    fs.createReadStream(file).pipe(res);
+  if (rel.includes('..') || path.isAbsolute(rel)) return json(res, 403, { error: 'forbidden' });
+  const asset = await readAsset(rel);
+  if (!asset) return json(res, 404, { error: 'not found' });
+  res.writeHead(200, {
+    'content-type': asset.type,
+    'content-length': Buffer.byteLength(asset.body),
+    'cache-control': 'no-cache',
   });
+  res.end(asset.body);
 }
 
 function serveRange(req, res, file) {
@@ -354,7 +389,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         id: job.id, status: job.status, progress: job.progress, kind: job.kind,
         error: job.error || null, result: job.result || null,
-        tail: job.status === 'error' ? job.log.slice(-1500) : undefined,
+        phase: job.phase || null,
+        tail: job.log ? job.log.slice(-1200) : undefined,
         download: job.status === 'done' && job.kind === 'render' ? `/api/download/${job.id}` : null,
       });
     }
@@ -372,15 +408,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ---- shared subtitle engine, reused by the browser preview ---- */
-    if (p === '/lib/ass.mjs' && req.method === 'GET') {
-      const file = path.join(__dirname, 'lib', 'ass.mjs');
-      const st = await fsp.stat(file);
-      res.writeHead(200, { 'content-type': MIME['.mjs'], 'content-length': st.size, 'cache-control': 'no-cache' });
-      return fs.createReadStream(file).pipe(res);
-    }
+    if (p === '/lib/ass.mjs' && req.method === 'GET') return sendAsset(res, 'lib/ass.mjs');
 
     if (p.startsWith('/api/')) return json(res, 404, { error: 'unknown endpoint' });
-    return serveStatic(req, res, p);
+    return sendAsset(res, p);
   } catch (err) {
     return json(res, 500, { error: String(err.message || err) });
   }

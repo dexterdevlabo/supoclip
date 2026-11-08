@@ -130,6 +130,15 @@
         <button id="btn-add" class="ghost">+ Cue</button>
       </div>
       <label class="row"><span>Language</span><select id="locale" class="grow"></select></label>
+      <label class="row"><span>Model</span>
+        <select id="whisperModel" class="grow">
+          <option value="tiny">tiny — fastest, roughest</option>
+          <option value="base">base — fast</option>
+          <option value="small" selected>small — balanced</option>
+          <option value="medium">medium — slow, better</option>
+          <option value="turbo">turbo — fast, near-large quality</option>
+        </select>
+      </label>
       <label class="row"><span>Max words/cue</span>
         <input type="range" id="wordsPerCue" min="1" max="14" step="1" /><output id="wordsPerCueOut"></output>
       </label>
