@@ -725,6 +725,7 @@ function bindActions() {
     a.click();
   };
   $('btn-srt').onclick = () => dlSub('srt');
+  $('btn-vtt').onclick = () => dlSub('vtt');
   $('btn-ass').onclick = () => dlSub('ass');
 
   // export
